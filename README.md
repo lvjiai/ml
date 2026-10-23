@@ -47,6 +47,8 @@ python scripts/run_all.py --fast     # 只跑 W1+W2（约 1 分钟，用于冒�
 streamlit run app/streamlit_app.py
 ```
 
+或在 Windows 上直接双击仓库根目录的 `start_demo.bat`。启动后浏览器打开 <http://localhost:8501>（这是一个网页界面，不是双击 `.py` 就能看的东西）。
+
 选一台发动机、拖动"只看前 N 个周期"，看 RUL 点预测与 90% 区间如何随证据变化。
 
 ### 4. 测试
