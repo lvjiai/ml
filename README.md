@@ -47,7 +47,7 @@ python scripts/run_all.py --fast     # 只跑 W1+W2（约 1 分钟，用于冒�
 streamlit run app/streamlit_app.py
 ```
 
-或在 Windows 上直接双击仓库根目录的 `start_demo.bat`。启动后浏览器打开 <http://localhost:8501>（这是一个网页界面，不是双击 `.py` 就能看的东西）。
+或在 Windows 上直接双击仓库根目录的 `打开demo.bat`：它会检查 Python 与依赖、挑一个空闲端口、启动服务并自动打开浏览器。关闭那个命令行窗口即停止服务（`start_demo.bat` 是旧版，功能相同）。
 
 选一台发动机、拖动"只看前 N 个周期"，看 RUL 点预测与 90% 区间如何随证据变化。
 
