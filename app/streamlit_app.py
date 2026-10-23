@@ -185,11 +185,15 @@ def main() -> None:
     )
 
     cycles = df.loc[df["unit"] == unit, "cycle"].to_numpy()
+    # Start mid-life, not at the very end: at the last cycle the true RUL is 0,
+    # which makes the first impression look like a broken prediction.
+    default_cut = int(round(int(cycles.max()) * 0.7))
+    default_cut = max(int(cycles.min()) + 30, min(default_cut, int(cycles.max())))
     cut = st.sidebar.slider(
         "假设我只看到了第几个周期",
         min_value=int(cycles.min()) + 29,
         max_value=int(cycles.max()),
-        value=int(cycles.max()),
+        value=default_cut,
         step=1,
         help="往前拖=只看到早期（信息少，模型应该更没把握）；往后拖=看到更多（信息多，范围应该更窄）。",
     )
