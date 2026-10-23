@@ -723,3 +723,47 @@ W1–W10 的结论是：树模型与 LSTM 在单工况上够用，FD002/FD004 �
 
 `artifacts/preds/w11_preds_FD00x.csv`、`reports/tables/w11_deep.csv`、`reports/tables/w12_final.csv`、`reports/w11_run.log`、`tests/test_deep.py`。
 
+## 20. 实施记录（W13–W16）：每周期评估、窗口集成与 TTA
+
+### 20.1 动机
+
+§19 之后剩下的两个问题：① 所有数字都只取末周期，模型在中段是否同样成立；② 窗口长度和推理扰动从来没被当成变量，而 §19 的负结果表明"加容量"不解决问题。W13–W16 按顺序回答，规则仍是"校准选型、测试只看一次"。
+
+### 20.2 每周期评估（W13，`scripts/w13_per_cycle.py`）
+
+- 失败时间 = 测试轨迹最后观测周期 + `RUL_FD00x`；第 t 周期真值 `min(F - t, 125)`，与训练目标、区间口径一致。
+- GBDT 的 379 维特征全部因果（滚动窗口与 cummax 只看过去），可直接逐行预测；LSTM 用 stride=1 滑窗。
+- 输出 `late`（最后 30 周期）与 `all`（全部周期）两个视图。结论：模型在中段明显更差；`all` 视图数字更低是早期目标恒为 125 造成的假象。NASA 分在该口径下被早期误差放大到数万，故本阶段只报 RMSE。
+
+### 20.3 窗口集成与 TTA（W14，`scripts/w14_lstm_tta.py`）
+
+- 窗口 {20, 30, 50} 各训一个 LSTM；TTA 把最后窗口平移 −2…+2 周期后平均（等价于对"最近若干个可能起点"做集成）。
+- 选型：在 20% 校准单元上按 stride 20 取截断样本打分（`calib_windows`），选窗口与组合方式；测试集只预测一次。
+- 结果（test / calib RMSE）：FD001 17.45/18.03、13.61/15.44、14.14/12.80，集成 13.68；FD002 15.95、14.94、13.65/14.76，集成 13.44；FD003 21.91、17.19、13.94/13.92，集成 15.80；FD004 16.51、15.38、13.60/15.42，集成 14.12。
+- FD001 是"校准选型失败"的样本：calib 选 50（12.80 vs 15.44），test 上 30 更好（13.61 vs 14.14）。如实保留，不做二次选择。
+- 实现坑：训练时漏了 `norm.transform(fit)`（训练原始量纲 / 测试归一化），RMSE 82–86；`calib_windows` 定义在 `__main__` 之后导致 NameError；`add_rul` 未生成导致 KeyError。
+
+### 20.4 深模型 TTA（W15，`scripts/w15_deep_tta.py`）
+
+- 复用 §19 的 ConvTransformer，单种子训练，权重存 `artifacts/deep_{subset}.pt`（配 `.json` 存结构参数），TTA 与 W14 相同。
+- 结果：14.44 / 15.01 / 15.14 / 16.04。与 W11 三种子（15.28/14.61/13.68/15.51）的差异说明单种子方差有 0.5–1.5 个 RMSE，**不能拿单次训练当模型能力**。
+
+### 20.5 最终对比与显著性（W16，`scripts/w16_blend_final.py`）
+
+- 读 W2（gbdt）、W14（逐窗口与集成）、W15（深模型 TTA）预测，按 unit 对齐后做等权组合。
+- 配对 bootstrap：3000 次，按发动机重采样（同一台机器的多周期保持成组），同时给逐子集区间与**跨四子集合并**区间（合并 = 把四个子集的平方误差按单元数汇总后开根号）。
+- 最终表：gbdt 15.87；w30 15.33；w50 13.83；deep 15.17；w50+deep **13.33**（逐子集 13.15/13.22/13.30/13.66）。
+- 合并 bootstrap：w30→w50 −1.50 [−2.43,−0.63] 显著；w50→w50+deep −0.50 [−0.88,+0.14] 不显著；gbdt 比 w50 差 +2.03 显著；deep 单模比 w50 差 +1.33 显著。
+- 结论：本轮唯一可宣称的改进是"窗口 50 + TTA"；组合是候选而非结论；模型容量的边际收益低于窗口/推理策略。
+
+### 20.6 诚实性
+
+- FD001 在 W11 冒烟与 W14 选型中各被看过一次（后者是 test 上发现 calib 选错，属于事后观察，已声明）。
+- 深模型 TTA 是单种子，与 W11 三种子不是同一口径，文中分列不混用。
+- 深模型与 w50 LSTM 均未接入 demo 与区间；demo 仍是 GBDT + CQR。
+- "严格选型验证"（calib 上多组划分重复）未做，留作后续。
+
+### 20.7 工件
+
+`scripts/w13_per_cycle.py`、`w14_lstm_tta.py`、`w15_deep_tta.py`、`w16_blend_final.py`；`reports/tables/w13_per_cycle.csv`、`w14_lstm_tta.csv`、`w15_deep_tta.csv`、`w16_final.csv`、`w16_bootstrap.csv`、`w16_pooled.csv`；`artifacts/preds/w14_preds_w*_FD00x.csv`、`w15_preds_FD00x.csv`、`artifacts/deep_FD00x.pt/.json`。
+
