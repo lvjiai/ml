@@ -53,10 +53,15 @@ def get_bundle(subset: str):
 
 @st.cache_data(show_spinner=False)
 def get_dataset(subset: str, show_truth: bool) -> pd.DataFrame:
+    """Always the full-life train split.
+
+    Hiding the truth must not change *which* trajectories the demo shows:
+    the C-MAPSS test split is cut short at an arbitrary cycle, so using it for
+    the "no truth" mode made the prediction curve stop at that cut (one point
+    for short units).  Visibility of the truth is handled in the page instead.
+    """
     ds = load_subset(subset, Config().data_dir)
-    if show_truth:
-        return with_targets(ds.train, Config().rul_clip)
-    return ds.test
+    return with_targets(ds.train, Config().rul_clip)
 
 
 @st.cache_data(show_spinner=False)
@@ -202,7 +207,7 @@ def main() -> None:
 
     view = observable_window(df, int(unit), cut)
     pred = predict_one(bundle, view.rows)
-    truth = view.rul_true
+    truth = view.rul_true if show_truth else None
 
     st.markdown("#### 结果")
     c1, c2, c3, c4 = st.columns(4)
@@ -266,7 +271,7 @@ def main() -> None:
     with right:
         curve = rul_curve(subset, show_truth, int(unit), int(cycles.max()))
         if not curve.empty:
-            true_life = int(cycles.max()) if view.full_life else 0
+            true_life = int(cycles.max()) if (view.full_life and show_truth) else 0
             st.pyplot(rul_figure(curve, true_life, pred["rul_point"], view.cycle))
             st.caption(
                 "图 2：蓝线是点预测，蓝色带是 90% 范围，红虚线是真实值（仅“真实值：显示”时出现），"
