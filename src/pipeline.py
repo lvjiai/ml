@@ -1,4 +1,4 @@
-﻿"""The one inference entry point: raw sensor rows -> RUL point + interval.
+"""The one inference entry point: raw sensor rows -> RUL point + interval.
 
 Every experiment script builds features the same way, so this module owns that
 recipe.  The Streamlit demo and the end-to-end test both go through
@@ -25,7 +25,47 @@ from src.config import Config
 from src.data.schema import SENSORS
 from src.features.conditions import ConditionNormalizer
 from src.features.rolling import add_rolling_features
+from src.intervals.calibration import sample_truncations
 from src.models.base import last_cycle_rows
+
+# Calibration never draws truncations further than this from failure: beyond
+# the horizon the label is a censored "at least 125" and the residual
+# distribution is dominated by the cap, not by model error.
+CALIB_HORIZON = 150.0
+
+
+def with_targets(df: pd.DataFrame, clip: int) -> pd.DataFrame:
+    """Attach ``rul_true`` (unclipped) and ``rul`` (capped) to a full-life run."""
+    out = df.copy()
+    last = out.groupby("unit")["cycle"].transform("max")
+    out["rul_true"] = (last - out["cycle"]).astype(float)
+    out["rul"] = out["rul_true"].clip(upper=clip).astype("int32")
+    return out
+
+
+def calibration_frame(
+    feat: pd.DataFrame,
+    units: np.ndarray,
+    window: int,
+    *,
+    stride: int = 10,
+    horizon: float = CALIB_HORIZON,
+    cap: float | None = None,
+) -> pd.DataFrame:
+    """Truncation points of ``units`` with their features and capped labels.
+
+    This is what the conformal quantile is computed on: it mimics the test
+    input (a truncated trajectory) instead of using full-life rows.
+    """
+    pts = sample_truncations(feat, units, window, stride=stride, horizon=horizon)
+    pts = pts.rename(columns={"rul": "y_raw"})
+    merged = pts.merge(feat, on=["unit", "cycle"], how="left", validate="one_to_one")
+    if merged.isna().any().any():
+        raise ValueError("calibration merge lost rows")
+    if cap is not None:
+        merged["y"] = np.minimum(merged["rul_true"], cap)
+    return merged
+
 
 
 @dataclass(frozen=True)

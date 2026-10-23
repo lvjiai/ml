@@ -168,7 +168,11 @@ def main(argv: list[str] | None = None) -> int:
         Xl, _ = lstm_windows(tr, WINDOW, calib[["unit", "cycle"]])
         p_l = np.clip(lstm_predict(net, Xl), 0.0, float(cfg.rul_clip))
 
-        y_c = calib["rul"].to_numpy()
+        # Calibration targets must live on the same scale as the test targets:
+        # min(RUL, CAP). Using the uncapped label (up to the 150 horizon) makes
+        # the quantile pay for points where the point model legitimately
+        # saturates, which silently widens every interval.
+        y_c = np.minimum(calib["rul"].to_numpy(), CAP)
 
         # --- test last cycle ---------------------------------------------
         te_last = last_cycle_rows(te)

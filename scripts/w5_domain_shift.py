@@ -41,6 +41,7 @@ from src.intervals.calibration import sample_truncations  # noqa: E402
 from src.intervals.conformal import SplitConformal, conformal_quantile, interval_metrics  # noqa: E402
 from src.models.base import last_cycle_rows  # noqa: E402
 from src.models.gbdt import select_model, train_gbdt  # noqa: E402
+from src.pipeline import calibration_frame, with_targets  # noqa: E402
 
 PAIRS = (("FD001", "FD002"), ("FD001", "FD004"))
 K_GRID = (1, 2, 3, 5, 10, 20, 50)
@@ -52,14 +53,6 @@ ALPHA = 0.1
 EXCLUDE = {"unit", "cycle", "setting_1", "setting_2", "setting_3", "rul", "rul_true", "condition"}
 
 
-def with_targets(df: pd.DataFrame, clip: int) -> pd.DataFrame:
-    out = df.copy()
-    last = out.groupby("unit")["cycle"].transform("max")
-    out["rul_true"] = (last - out["cycle"]).astype(float)
-    out["rul"] = out["rul_true"].clip(upper=clip).astype("int32")
-    return out
-
-
 def feature_columns(df: pd.DataFrame) -> list[str]:
     return [c for c in df.columns if c not in EXCLUDE]
 
@@ -69,12 +62,9 @@ def build(df: pd.DataFrame, norm: ConditionNormalizer, windows: tuple[int, ...])
 
 
 def calib_frame(feat: pd.DataFrame, units: np.ndarray, window: int) -> pd.DataFrame:
-    pts = sample_truncations(feat, units, window, stride=10, horizon=CALIB_HORIZON)
-    pts = pts.rename(columns={"rul": "y_raw"})
-    merged = pts.merge(feat, on=["unit", "cycle"], how="left", validate="one_to_one")
-    assert merged.notna().all().all(), "calibration merge lost rows"
-    merged["y"] = np.minimum(merged["rul_true"], CAP)
-    return merged
+    return calibration_frame(
+        feat, units, window, stride=10, horizon=CALIB_HORIZON, cap=CAP
+    )
 
 
 def evaluate(y: np.ndarray, lo: np.ndarray, hi: np.ndarray) -> dict:

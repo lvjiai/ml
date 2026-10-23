@@ -9,13 +9,18 @@ is available before each documented air-leak event.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from src.config import DEFAULT_METROPT_CSV  # noqa: E402
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-CSV = Path(r"E:\新建文件夹\rul-cmapss\metropt\MetroPT3.csv")
+CSV = DEFAULT_METROPT_CSV
 OUT_JSON = PROJECT_ROOT / "reports" / "tables" / "w5_metropt_profile.json"
 OUT_MD = PROJECT_ROOT / "reports" / "w5_metropt_profile.md"
 
