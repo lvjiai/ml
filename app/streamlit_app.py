@@ -116,22 +116,76 @@ def rul_figure(
     return fig
 
 
-def main() -> None:
-    st.title("发动机剩余寿命：点预测 + 置信区间")
-    st.caption(
-        "C-MAPSS 仿真数据。选一台发动机、决定只看前多少个周期，模型给出剩余寿命和 90% 区间。"
+def intro() -> None:
+    """Plain-language explanation for a first-time visitor."""
+    st.markdown(
+        "**一句话**：给模型看一台发动机最近 N 个周期的传感器读数（温度、压力、转速等），"
+        "它估计这台机器还能再运行多少个周期，并给出一个范围。"
+        "\n\n"
+        "这里的周期可以理解成“又跑完一趟”；数据是 NASA 公开的 **C-MAPSS 仿真数据**（不是真机），"
+        "用来验证方法。换成真实设备，必须用真实数据重新校准，不能直接搬。"
     )
+
+    st.markdown("#### 这个页面怎么用（三步）")
+    st.markdown(
+        "1. **左边选一台机器**，再拖动“只看前多少个周期”——相当于告诉模型“我只知道它跑了这么久，"
+        "后面的读数还没看到”。\n"
+        "2. **看上面四个数字**：模型猜它还能跑多久、这个猜测的范围有多宽、以及（仅训练单元）真实答案。\n"
+        "3. **看下面两张图**：左边是传感器随时间的变化；右边是“证据变多时，预测怎么变”。"
+    )
+
+
+def read_metrics() -> None:
+    """Explain what the four numbers mean, right where they are shown."""
+    st.markdown("#### 四个数字怎么读")
+    st.markdown(
+        "- **剩余寿命（点预测）**：模型认为最可能的剩余周期数，单位是周期。\n"
+        "- **90% 区间**：真实剩余寿命有约 90% 的概率落在这个范围里。它是一个统计承诺，"
+        "不是“绝对安全”；模型被验证过才可信。\n"
+        "- **区间宽度**：模型有多不确定。越窄越“敢下结论”，但如果模型没校准好，"
+        "窄区间可能是过度自信——这正是本项目要用真实数据检验的东西。\n"
+        "- **真实剩余寿命**：只有“训练单元”才有答案，用来和预测对照；"
+        "测试单元的答案被藏起来了。"
+    )
+
+
+def legend_notes() -> None:
+    """One-line legends for the two figures."""
+    st.markdown(
+        "**左图（传感器）**：只看被观测到的那一段，每条曲线是一种传感器（这里只画了最关键的 4 个，"
+        "并按各自的波动幅度标准化，方便放在一张图上看趋势）。晚期通常能看到曲线明显抬头/下沉，"
+        "那就是退化的信号。\n\n"
+        "**右图（预测怎么变）**：横轴是“看到了第几个周期”，纵轴是剩余寿命。蓝线=模型的点预测，"
+        "蓝色带=90% 区间；**红色虚线**=真实剩余寿命（只有训练单元有），它随时间线性下降；"
+        "黑色圆点=你现在拖到的位置。理想情况：蓝线越来越贴近红色虚线，蓝带越来越窄。"
+    )
+
+
+def main() -> None:
+    st.title("这台机器还能用多久？——剩余寿命预测 demo")
+    st.caption(
+        "C-MAPSS 仿真数据｜输入一段传感器读数，输出剩余寿命（RUL）+ 90% 区间。"
+        "所有数字都由仓库里的模型实时算出，不是写死的。"
+    )
+
+    with st.expander("这是什么？怎么看？（30 秒读完）", expanded=True):
+        intro()
+        read_metrics()
 
     with st.sidebar:
         st.header("输入")
-        subset = st.selectbox("子集", SUBSETS, index=0)
+        st.caption("改这里的选项，右侧的结果会立刻重新计算。")
+        subset = st.selectbox("子集", SUBSETS, index=0, help="C-MAPSS 的四种工况组合，FD001 最简单，FD004 最难。")
         source = st.radio(
-            "数据来源", ["训练单元（有真实 RUL）", "测试单元（真实 RUL 隐藏）"], index=0
+            "数据来源",
+            ["训练单元（有真实 RUL）", "测试单元（真实 RUL 隐藏）"],
+            index=0,
+            help="训练单元能看到真实剩余寿命，适合对照；测试单元只有末周期标签，和不看答案的真实使用更接近。",
         )
         bundle = get_bundle(subset)
         df = get_dataset(subset, source)
         units = np.sort(df["unit"].unique())
-        unit = st.selectbox("发动机编号", units.tolist(), index=0)
+        unit = st.selectbox("发动机编号", units.tolist(), index=0, help="每台发动机的寿命长短不同，可以多换几台看。")
         cycles = df.loc[df["unit"] == unit, "cycle"].to_numpy()
         default_cut = int(cycles.max())
         cut = st.slider(
@@ -140,7 +194,7 @@ def main() -> None:
             max_value=int(cycles.max()),
             value=default_cut,
             step=1,
-            help="30 个周期以下特征窗口构不成，所以下限是 30。",
+            help="相当于“我只看到这里”。往前拖=证据更少、区间更宽；往后拖=证据更多。30 个周期以下构不成特征窗口。",
         )
         st.caption(f"这台机器完整寿命 {int(cycles.max())} 个周期")
 
@@ -149,20 +203,40 @@ def main() -> None:
     truth = view.rul_true
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("剩余寿命（点预测）", f"{pred['rul_point']:.1f}")
+    c1.metric(
+        "剩余寿命（点预测）", f"{pred['rul_point']:.1f}", help="模型认为最可能的剩余周期数（单位：周期）。"
+    )
     if "rul_lo" in pred:
-        c2.metric("90% 区间", f"{pred['rul_lo']:.0f} – {pred['rul_hi']:.0f}")
-        c3.metric("区间宽度", f"{pred['rul_hi'] - pred['rul_lo']:.0f}")
+        c2.metric(
+            "90% 区间",
+            f"{pred['rul_lo']:.0f} – {pred['rul_hi']:.0f}",
+            help="真实剩余寿命约有 90% 的概率落在这个范围；它是统计承诺，不是保证。",
+        )
+        c3.metric(
+            "区间宽度",
+            f"{pred['rul_hi'] - pred['rul_lo']:.0f}",
+            help="模型有多不确定：越窄越敢下结论，但过窄也可能是过度自信。",
+        )
     else:
-        c2.metric("90% 区间", "未校准")
+        c2.metric("90% 区间", "未校准", help="该模型没有校准工件，只有点预测。")
         c3.metric("区间宽度", "—")
-    c4.metric("真实剩余寿命", "—" if truth is None else f"{truth:.0f}")
+    c4.metric(
+        "真实剩余寿命",
+        "—" if truth is None else f"{truth:.0f}",
+        help="只有训练单元能显示；测试单元的答案是隐藏的。",
+    )
 
     if truth is not None:
         err = pred["rul_point"] - truth
-        st.caption(f"点预测误差 {err:+.1f} 周期；区间{'覆盖' if pred['rul_lo'] <= truth <= pred['rul_hi'] else '未覆盖'}真值。")
+        st.caption(
+            f"点预测误差 {err:+.1f} 周期（负=猜少了，正=猜多了）；"
+            f"区间{'覆盖' if pred['rul_lo'] <= truth <= pred['rul_hi'] else '未覆盖'}真值。"
+        )
     else:
         st.caption("测试单元的真实剩余寿命不在数据里（只在 RUL_FD00x 中给出末周期标签），故不显示。")
+
+    with st.expander("两张图怎么看", expanded=False):
+        legend_notes()
 
     left, right = st.columns(2)
     with left:
