@@ -41,3 +41,21 @@ def test_app_point_prediction_is_sane(app) -> None:
     lo, hi = float(lo), float(hi)
     assert lo <= point <= hi, "point estimate must lie inside its own interval"
     assert 0.0 <= lo and hi <= 125.0
+
+
+def test_hidden_truth_keeps_full_life_trajectories(app) -> None:
+    """Hiding the truth must not switch to the truncated test split.
+
+    The test split of C-MAPSS stops at an arbitrary cycle (FD001 unit 1 ends at
+    31), so the prediction curve used to collapse to a single point.
+    """
+    app.radio[0].set_value("不显示").run()
+    assert [str(e.value) for e in app.exception] == []
+    values = {m.label: m.value for m in app.metric}
+    assert values["真实值"] == "不显示"
+
+    sliders = {s.label: s for s in app.slider}
+    slider = sliders["观测到的周期数"]
+    # Full life of FD001 unit 1 is 192; the truncated test copy ends at 31.
+    assert slider.max >= 150, f"slider max {slider.max} looks like a truncated test unit"
+
