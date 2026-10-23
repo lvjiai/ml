@@ -112,6 +112,11 @@ def rul_figure(
             curve["cutoff"], max_cycle - curve["cutoff"], color="#d62728",
             linestyle="--", linewidth=1.0, label="真实值",
         )
+    # Everything a model trained on min(RUL,125) can express lives below 125.
+    ax.axhspan(125.0, ax.get_ylim()[1] if ax.get_ylim()[1] > 125 else 130.0,
+               color="grey", alpha=0.10, zorder=0)
+    ax.text(ax.get_xlim()[0], 127.0, "模型上限 125", fontsize=7, color="grey")
+    ax.axhline(125.0, color="grey", linewidth=0.6, linestyle="-")
     ax.axvline(cut, color="grey", linestyle=":", linewidth=1.0)
     ax.scatter([cut], [point], color="black", zorder=5, s=28)
     ax.set_xlabel("观测到的周期数")
@@ -220,24 +225,34 @@ def main() -> None:
     else:
         c2.metric("90% 范围", "无", help="这个模型没有区间校准。")
         c3.metric("范围宽度", "无")
+    capped = truth is not None and truth > 125.0
     c4.metric(
         "真实值",
-        "不显示" if truth is None else f"{truth:.0f}",
-        help="只在“真实值：显示”时给出。",
+        "不显示" if truth is None else ("≥125" if capped else f"{truth:.0f}"),
+        help="只在“真实值：显示”时给出；超过 125 时显示 ≥125。",
     )
 
     st.caption(
         "剩余周期数：模型给出的一个数。90% 范围：按 90% 覆盖率校准的区间。"
-        "范围宽度：上界减下界。真实值：仅“真实值：显示”时可用。"
+        "范围宽度：上界减下界。真实值：仅“真实值：显示”时可用，超过 125 时显示 ≥125。"
     )
 
     if truth is not None:
-        err = pred["rul_point"] - truth
-        covered = pred["rul_lo"] <= truth <= pred["rul_hi"]
-        st.caption(
-            f"误差 {err:+.1f} 个周期（正数=预测值高于真实值）。"
-            f"真实值{'在' if covered else '不在'} 90% 范围内。"
-        )
+        if capped:
+            err = pred["rul_point"] - 125.0
+            st.caption(
+                f"真实值 {truth:.0f} 个周期，超过模型上限 125。"
+                f"模型只能说“至少 125”，误差按 125 计：{err:+.1f} 个周期。"
+                "区间上界也被截断在 125，所以范围看起来偏窄。"
+            )
+        else:
+            err = pred["rul_point"] - truth
+            covered = pred["rul_lo"] <= truth <= pred["rul_hi"]
+            clip_note = "（上界被截断在 125）" if pred["rul_hi"] >= 125.0 else ""
+            st.caption(
+                f"误差 {err:+.1f} 个周期（正数=预测值高于真实值）。"
+                f"真实值{'在' if covered else '不在'} 90% 范围内{clip_note}。"
+            )
     else:
         st.caption("真实值不显示，页面只给出预测。")
 
