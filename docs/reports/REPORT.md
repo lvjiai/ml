@@ -195,6 +195,23 @@ E2–E5 使用**便携特征集**（去掉 3 个工况设置量与工况编号�
 
 Top 5：`s_4_mean_w10`、`s_4_mean_w5`、`s_11_mean_w10`、`s_15_mean_w10`、`s_9_cummax`。与文献中"s_4/s_11/s_12 携带主要退化信息"一致。累积最大值（cummax）进入前 20，说明"历史最差状态"是有用的健康度代理。
 
+### 5.5 结构优化与等权组合（W9–W10）
+
+在 W2 的同一协议下比较四种结构化变体：`gbdt_linear_tree`（叶子线性模型 + 较强正则）、按工况拆的专家模型（MoE，每工况 ≥8 台训练单元才训，否则回退全局模型）、以及两者的组合。结果（末周期 RMSE）：
+
+| 模型 | FD001 | FD002 | FD003 | FD004 |
+|---|---:|---:|---:|---:|
+| gbdt（W2 基线） | 17.40 | **27.13** | **15.60** | 28.78 |
+| gbdt + linear_tree | **17.25** | 27.73 | 19.26 | 28.66 |
+| 分工况专家 | 17.40 | 27.18 | 15.60 | 28.16 |
+| 分工况专家 + linear | 17.25 | 27.75 | 19.26 | **27.59** |
+
+**结论一（负结果）**：没有任何结构化变体在所有子集上稳定胜出。`linear_tree` 在单工况上略好（FD001 −0.15），但在 FD002/FD003 明显退化；分工况专家只在 FD004 带来 4% 的增益（28.78→27.59，NASA 从 5686 降到 4934），在 FD002 与 gbdt 持平。原因与 §5.1 一致：FD002/FD004 的困难来自"同一读数在不同工况下对应不同健康度"，而按工况拆专家只是把这个问题换了个切法；每条专家只拿到约 1/6 的数据，方差反而上升。
+
+**结论二**：等权组合（不做任何测试集调权）`gbdt + lstm` 在四子集平均上最好（平均 RMSE 21.08，gbdt 22.23、lstm 21.82），FD001 15.18→14.91、FD002 27.13→26.28、FD004 28.78→26.77，但 FD003 15.60→16.36 变差。因此我们**不宣称**"精度提升"，只报告"等权组合平均更好、但分布不稳定"。这也说明单看某一个子集的涨跌容易得出错误结论——本项目所有结论都按四子集同时报告。
+
+**未采纳**：分工况专家 + linear 在 FD004 的 27.59 是四子集里最漂亮的数字，但它是在测试集上被看到的；要把它变成"可宣称的改进"，下一步需要用 calib 单元做模型选择（而不是测试集），这被记为后续方向。
+
 ---
 
 ## 6. 工程与复现
@@ -229,6 +246,8 @@ python scripts/w3_lstm.py              # LSTM 对照
 python scripts/w4_intervals.py         # 区间
 python scripts/w5_domain_shift.py      # 域偏移
 python scripts/compare_models.py       # 汇总 all_results.csv
+python scripts/w9_optimize.py          # 结构优化（linear_tree / 分工况专家）
+python scripts/w10_blend.py            # 等权组合
 pytest -q                              # 40 passed
 streamlit run app/streamlit_app.py     # demo
 ```
@@ -277,5 +296,7 @@ streamlit run app/streamlit_app.py     # demo
 | 点预测全表 | `reports/tables/all_results.csv` |
 | 区间表 | `reports/tables/w4_intervals.csv`、`w4_alpha_sweep.csv` |
 | 域偏移表 | `reports/tables/w5_domain_shift.csv` |
+| 结构优化表 | `reports/tables/w9_optimize.csv` |
+| 组合表 | `reports/tables/w10_blend.csv` |
 | 图表 | `reports/figures/eda_*.png`、`importance_*.png`、`w4_intervals_*.png`、`w5_fewshot.png` |
 | 模型与校准 | `artifacts/gbdt_*.txt`、`lstm_*.pt`、`norm_*.joblib`、`calibration_*.json` |
