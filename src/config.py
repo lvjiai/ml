@@ -2,6 +2,9 @@
 
 Every path and hyper-parameter used by the pipeline originates here so that a
 single ``dataclasses.replace`` can reproduce an experiment.
+
+Data paths default to ``<project>/data``; override with ``RUL_DATA_DIR`` /
+``METROPT_CSV`` when the datasets live elsewhere.
 """
 
 from __future__ import annotations
@@ -12,21 +15,14 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-# Where the extracted C-MAPSS files live. Override with the RUL_DATA_DIR
-# environment variable when moving the dataset.
+# Where the extracted C-MAPSS files live (train_FD00x.txt etc.).
 DEFAULT_DATA_DIR = Path(
-    os.environ.get(
-        "RUL_DATA_DIR",
-        r"E:\新建文件夹\ml-projects\rul-cmapss\cmapssdata",
-    )
+    os.environ.get("RUL_DATA_DIR", str(PROJECT_ROOT / "data" / "cmapss"))
 )
 
-# MetroPT-3 real-world compressor series (W5). Override with METROPT_CSV.
+# MetroPT-3 real-world compressor series (appendix / W5 profiling only).
 DEFAULT_METROPT_CSV = Path(
-    os.environ.get(
-        "METROPT_CSV",
-        r"E:\新建文件夹\rul-cmapss\metropt\MetroPT3.csv",
-    )
+    os.environ.get("METROPT_CSV", str(PROJECT_ROOT / "data" / "metropt" / "MetroPT3.csv"))
 )
 
 

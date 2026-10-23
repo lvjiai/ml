@@ -1,14 +1,12 @@
-# Core W1 stack
-pandas>=2.3
-numpy>=2.3
-scikit-learn>=1.5
-matplotlib>=3.10
-
-# W2+ 
-lightgbm>=4.5
-
-# W6 demo
-streamlit>=1.40
-
-# tests
-pytest>=8.0
+# Pinned to the versions the reported numbers were produced with (Python 3.13).
+# torch: install the CPU wheel if you do not need CUDA:
+#   pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+pandas==2.3.1
+numpy==2.3.2
+scikit-learn==1.9.1
+matplotlib==3.10.5
+lightgbm==4.7.0
+torch==2.8.0
+streamlit==1.66.1
+pytest==9.1.1
+joblib==1.6.0
