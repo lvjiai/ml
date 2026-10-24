@@ -767,3 +767,28 @@ W1–W10 的结论是：树模型与 LSTM 在单工况上够用，FD002/FD004 �
 
 `scripts/w13_per_cycle.py`、`w14_lstm_tta.py`、`w15_deep_tta.py`、`w16_blend_final.py`；`reports/tables/w13_per_cycle.csv`、`w14_lstm_tta.csv`、`w15_deep_tta.csv`、`w16_final.csv`、`w16_bootstrap.csv`、`w16_pooled.csv`；`artifacts/preds/w14_preds_w*_FD00x.csv`、`w15_preds_FD00x.csv`、`artifacts/deep_FD00x.pt/.json`。
 
+
+## §21 选型协议闭环（W18）
+
+### 21.1 动机
+
+W2–W16 的所有模型对比都在测试集上读，违反了"测试集只看一次"的协议。W18 补齐：候选模型只在校准单元的 20% 上比较，选中之后测试集才被读一次。
+
+### 21.2 实现
+
+- `src/models/loaders.py`：把已训练模型从工件重建为可预测对象——
+  - `load_norm` / `deep_normalizer`：GBDT 与 LSTM 用 `norm_FD00x.joblib`（全训练集拟合），深模型用 80% fit 单元拟合的独立归一化；
+  - `load_lstm`（窗口 30 / 50，隐藏层从 state_dict 推出）、`predict_lstm`（TTA 平移 −2…+2）；
+  - `load_deep`（读 `deep_FD00x.json` 恢复结构）、`predict_deep`（同样 TTA）。
+- `scripts/w18_select.py`：每台校准发动机取 75% 寿命处截断（真值 `min(剩余,125)`），8 个候选（4 个单模 + 4 个等权组合）在同一校准集上算 RMSE，取最小者；随后在测试集上只读选中的那一行。
+- 输出 `reports/tables/w18_select.csv`（每子集 × 候选的 calib/test RMSE）与 `w18_selected.csv`（选中、事后最优、后悔值、Spearman）。
+
+### 21.3 结果
+
+选中模型平均测试 RMSE 13.65（事后最优 13.24，单独 GBDT 15.87）；后悔值 FD001 0.83、FD002 0.18、FD003 0.64、FD004 0.00；校准-测试排序 Spearman 0.41–0.81。
+
+### 21.4 结论与诚实性
+
+- 校准选型可用，代价（后悔值）小于选错模型的代价；但 FD001 只有 20 个校准单元，排序不稳，需要多组划分重复才能报方差。
+- 深模型在任何子集都没被选中；FD002 选中 `w50+deep`，与 W16 的"不显著"并不矛盾（前者比平均误差，后者检验差值区间）。
+- W18 不能修复 FD001 历史上在测试集上调参的污染；它只给出"若全程守规矩会选什么"的参考。

@@ -112,3 +112,23 @@ def validate(ds: Dataset) -> None:
         )
     if (ds.rul < 0).any():
         raise DataValidationError(f"{ds.name}: negative RUL label")
+
+def truncate_at_fraction(df: pd.DataFrame, frac: float) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Cut every unit at ``frac`` of its recorded life.
+
+    Returns the truncated frame plus one label row per unit: ``unit`` and the
+    remaining life at the cut, capped at 125 like the training targets.  The
+    W18 selection protocol and the W17 mid-life evaluation both score at such
+    cuts, so they share this helper.
+    """
+    if not 0.0 < frac < 1.0:
+        raise ValueError("frac must be in (0, 1)")
+    cuts: dict[int, int] = {}
+    labels: list[dict[str, float]] = []
+    for unit, sub in df.groupby("unit", sort=True):
+        life = int(sub["cycle"].max())
+        cut = max(1, int(round(frac * life)))
+        cuts[int(unit)] = cut
+        labels.append({"unit": int(unit), "y": min(float(life - cut), 125.0)})
+    keep = df["unit"].map(cuts).to_numpy() >= df["cycle"].to_numpy()
+    return df[keep].reset_index(drop=True), pd.DataFrame(labels)

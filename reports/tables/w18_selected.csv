@@ -1,0 +1,5 @@
+subset,selected,calib_rmse,test_rmse,oracle,oracle_test_rmse,regret,n_calib_units,spearman_calib_test
+FD001,lstm_w30,7.791,13.8428,all4,13.0176,0.8252,20,0.619
+FD002,lstm_w50+deep,10.9578,13.2235,all4,13.0391,0.1844,52,0.405
+FD003,lstm_w50,12.3962,13.9379,gbdt+lstm_w50,13.2978,0.6401,20,0.81
+FD004,lstm_w50,13.9973,13.5981,lstm_w50,13.5981,0.0,50,0.81
