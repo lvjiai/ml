@@ -1,9 +1,11 @@
 # 详细设计报告
 
-**项目**：sim2real-rul —— 从仿真到真机的工业设备剩余寿命预测与可信区间
-**版本**：v0.1（对应 SRS v0.1；§9 跨域模块协议待 TBD-1 定稿）
-**日期**：2026-10-23
-**读者**：实现者（本项目即作者本人）、验收者
+**项目**：sim2real-rul —— 涡扇发动机剩余寿命预测与可校准区间
+**版本**：v0.2（实现完成后的回填版，对应 SRS v0.2）
+**日期**：2026-10-24
+**读者**：实现者（本项目即作者本人）、验收者、答辩评审
+
+> **怎么读这份文档**：§1–§14 是开工前的**初始设计**（保留原样，便于对照"当初怎么想"）；§15–§21 是 W2–W18 的**实施记录**（每个阶段追加，记录实际做法、与初始设计的差异、踩过的坑）；§22–§24 是**演示层、工程化与技术总表**；§25 是**与 v0.1 的差异清单**。两者冲突时，以实施记录与 §25 为准。
 
 ---
 
@@ -768,7 +770,7 @@ W1–W10 的结论是：树模型与 LSTM 在单工况上够用，FD002/FD004 �
 `scripts/w13_per_cycle.py`、`w14_lstm_tta.py`、`w15_deep_tta.py`、`w16_blend_final.py`；`reports/tables/w13_per_cycle.csv`、`w14_lstm_tta.csv`、`w15_deep_tta.csv`、`w16_final.csv`、`w16_bootstrap.csv`、`w16_pooled.csv`；`artifacts/preds/w14_preds_w*_FD00x.csv`、`w15_preds_FD00x.csv`、`artifacts/deep_FD00x.pt/.json`。
 
 
-## §21 选型协议闭环（W18）
+## 21. 实施记录（W18）：选型协议闭环
 
 ### 21.1 动机
 
@@ -792,3 +794,134 @@ W2–W16 的所有模型对比都在测试集上读，违反了"测试集只看�
 - 校准选型可用，代价（后悔值）小于选错模型的代价；但 FD001 只有 20 个校准单元，排序不稳，需要多组划分重复才能报方差。
 - 深模型在任何子集都没被选中；FD002 选中 `w50+deep`，与 W16 的"不显著"并不矛盾（前者比平均误差，后者检验差值区间）。
 - W18 不能修复 FD001 历史上在测试集上调参的污染；它只给出"若全程守规矩会选什么"的参考。
+
+---
+
+## 22. 演示层实现（W6）
+
+### 22.1 页面结构
+
+单页 Streamlit，左侧栏三个输入、主区两图四卡，底部三个展开块：
+
+- 侧栏：场景选择（radio，显示"场景 1：一种运转状态"而不是 FD001）、机器编号、观测周期滑杆、真实值开关（显示/不显示）。
+- 主区：指标卡四张（剩余周期数、90% 范围、范围宽度、真实值）；图 1 为 4 条关键传感器读数（按窗口内 z-score）；图 2 为"预测值随观测周期增长"的曲线 + 真值斜线 + 当前截止竖线。
+- 展开块：页面说明、这个模型在什么情况下不能用、上传传感器数据（CSV）。
+
+### 22.2 数据流
+
+```
+load_subset(name)  →  with_targets(train, 125)  →  observable_window(unit, cutoff)
+                                                   →  pipeline.predict_one
+                                                   →  指标卡 / 图 2
+```
+
+- `app/streamlit_app.py::get_dataset` 永远返回**完整寿命**的训练轨迹（带 rul_true）。真值是否显示由页面决定，不在数据层截断。
+- `src/demo.py::observable_window` 只做一件事：把轨迹截到 `cycle ≤ cutoff`，并保留 `rul_true`（若有）。它是纯函数，可单测。
+- `rul_curve` 在 18 个递增截止点上重复调用 `predict_one`，得到"观测越长、预测越准"的轨迹；缓存键含场景与机器，避免重复推理。
+
+### 22.3 三个关键决定
+
+1. **真值可见性与数据截断解耦**。曾经的 bug：`show_truth=False` 时返回 `ds.test`（本就截断），图 2 的横轴只到截断点，曲线塌成一个点。修复后隐藏真值只影响覆盖层，横轴始终是完整寿命。
+2. **截断语义在界面上明说**。模型上限 125；真值 176 时显示 `≥125`，误差按 125 计，图 2 的 >125 区域涂灰。否则用户会看到"误差 −54.9"这种由口径造成的假误差。
+3. **场景名映射**。`SCENARIOS` 把 FD001–FD004 映射为"一种/六种运转状态、两种损坏方式"的外行描述，FD 编号只在展开块的"使用限制"里出现。
+
+### 22.4 启动器
+
+`打开demo.bat`（ASCII only，避免 cmd 的 GBK 解析）：
+
+- 依次探测 `python`、`py -3`；检查 `streamlit/lightgbm/sklearn/pandas/numpy/torch` 是否可导入；
+- 端口从 8501 起探测，占用则顺延到 8502、8503；
+- 后台 powershell 延迟 6 秒开浏览器，前台前台跑 streamlit；
+- `--check` 只做环境检查并打印 `OK: python` / `PORT: 8502`；`DEMO_NO_BROWSER=1` 跳过开浏览器。
+
+### 22.5 测试
+
+- `tests/test_demo.py`（9 个）：`observable_window` 截断、`settings_defaults` 中位数、`coerce_uploaded` 的缺列/缺设置/缺 cycle/空表。
+- `tests/test_app.py`（4 个，AppTest 真跑）：页面能渲染、点预测落在区间内、值域 0–125、隐藏真值时横轴仍是完整寿命。
+
+---
+
+## 23. 工程化与复现（W7–W8）
+
+### 23.1 报告数字溯源
+
+REPORT 的每一张表都标注 `reports/tables/*.csv` 来源；`scripts/run_all.py` 按 W1 → W5 → compare 的顺序重跑，生成同样的表。摘要里的数字（如"合并 RMSE 13.33"）由 `w16_pooled.csv` 直接读出，不手写。
+
+### 23.2 编排
+
+`scripts/run_all.py`：
+
+- 子进程逐步执行 `w1_data_baseline.py`、`w2_features_gbdt.py`、`w3_lstm.py`、`w4_intervals.py`、`w5_domain_shift.py`、`compare_models.py`；
+- 任一步非零退出即停，打印失败阶段；
+- `--fast` 只跑 W1 与 W2/FD001（约 32 秒），用于冒烟。
+
+### 23.3 依赖与数据布局
+
+- `requirements.txt` 锁定版本（含 torch 的 CPU 轮子安装说明）；
+- 数据从机器绝对路径搬到项目内：`data/cmapss`、`data/metropt`；`src/config.py` 默认按 `PROJECT_ROOT` 解析，并支持 `RUL_DATA_DIR` / `METROPT_CSV` 覆盖；
+- `data/` 加入 `.gitignore`；仓库只含代码、文档与小型工件（`artifacts/` 里的模型文本与预测）。
+
+### 23.4 版本管理
+
+Git 仓库，远程 `https://github.com/lvjiai/ml`；每个工作包一次提交，提交信息带阶段前缀（`W2:`、`W6:`、`W18:`）。没有 CI：测试靠本地 `pytest`（48 个）。
+
+### 23.5 测试清单
+
+| 文件 | 覆盖 |
+|---|---|
+| `test_data.py` | 解析、行数、标签截断、常数列 |
+| `test_split.py` | 按 unit 切分、比例、种子可复现 |
+| `test_features.py` | 滚动特征因果性、工况归一化 |
+| `test_metrics.py` | RMSE、NASA、分段 MAE、边界 |
+| `test_conformal.py` | 有限样本分位、边际覆盖、CQR 单调性、截断 |
+| `test_lstm.py` | 窗口形状、补齐、前向与梯度 |
+| `test_deep.py` | 窗口形状、截断目标、前向与梯度 |
+| `test_pipeline.py` | 加载工件、单条推理、区间 |
+| `test_demo.py` / `test_app.py` | demo 纯逻辑、页面端到端 |
+| `test_select.py` | 截断工具、标签上限、非法比例 |
+
+### 23.6 已知工程债
+
+- 无 CI、无 lint/format 配置、未打包成 wheel；
+- 深模型只有单种子工件，没有多组划分重复；
+- demo 单页无鉴权（仅本地使用，不部署）。
+
+---
+
+## 24. 技术总表（设计与实现对照）
+
+| 技术 | 实现位置 | 输入 → 输出 | 复杂度/成本 | 设计理由 |
+|---|---|---|---|---|
+| 工况聚类与归一化 | `src/features/conditions.py`（`ConditionNormalizer`） | 原始表 → 按工况 z-score 的表 | 训练一次 KMeans，推理 O(n) | 六工况子集里，不归一化的话同一传感器含义不同 |
+| 多尺度滚动特征 | `src/features/rolling.py`（`add_rolling_features`） | 归一化表 → 379 维特征表 | 向量化 cumsum + shift；4 窗口 × 21 传感器 × 4 统计 | 退化是趋势不是瞬时值；多窗口兼顾早期与末期 |
+| LightGBM | `src/models/gbdt.py`（`train_gbdt` / `select_model`） | 379 维 → 点预测 | CPU 秒级；3 折 GroupKFold 选轮数 | 表格特征强、可解释、无需 GPU |
+| LSTM | `src/models/lstm.py`（`RULNet`） | 30/50 × 21 → 点预测 | CPU 每子集 0.5–1.5 分钟 | 提供"序列建模是否值得"的证据 |
+| 卷积-Transformer | `src/models/deep.py`（`ConvTransformer`） | 30 × 14 + 工况 → 点预测 | CPU 每子集 15–45 分钟 | 检验容量是否是瓶颈（结论：不是） |
+| TTA | `src/models/loaders.py`（`_tta_lstm` / `_tta_deep`） | 窗口 → 平均预测 | 推理 ×5 | 成本低、稳定 0.5–1.0 收益 |
+| split conformal | `src/intervals/conformal.py` | 校准残差 → q、区间 | O(n log n) | 假设最弱，作为下界 |
+| CQR | 同上 + `scripts/w4_intervals.py` | 分位模型 + 校准 → 区间 | 多训两个 LightGBM | 检验"自适应宽度"是否值回成本（结论：未胜） |
+| 配对 bootstrap | `scripts/w16_blend_final.py`、W17 | 两条误差向量 → 差值区间 | 2000–3000 次重采样 | 避免把噪声当改进 |
+| 校准集选型 | `scripts/w18_select.py` + `src/models/loaders.py` | 8 候选 → 选中的模型 | 推理级开销 | 把测试集从选择回路里摘出去 |
+| 中段评估 | `scripts/w17_midlife.py` + `truncate_at_fraction` | 全训练集 → 3545 条记录 | 与推理同量级 | 末周期数字会掩盖中段失效 |
+| Streamlit | `app/streamlit_app.py` + `src/demo.py` | 曲线 → 指标卡与两图 | 单次 < 2 秒 | 让结论可触摸 |
+| 一键复现 | `scripts/run_all.py` | 原始数据 → 全部表 | `--fast` 32 秒，全量约 2 小时 | 数字可追溯 |
+
+---
+
+## 25. 与 v0.1 设计的差异清单
+
+| 项 | v0.1 设计 | v0.2 实际 | 原因 |
+|---|---|---|---|
+| 跨域范围 | C-MAPSS → MetroPT-3 跨设备 | 同仿真器 E1–E5 阶梯 | 跨设备不可比、结论易被消解（ADR 0001） |
+| MetroPT-3 | 主线之一 | 仅加载器与附录 | 同上 |
+| 区间主方法 | CQR 为主、split 为对照 | 结论反转：split 覆盖率相当、宽度更小 3–6 周期；REPORT §5.2 如实写 | CQR 的分位模型在低 RUL 段低估不确定性 |
+| demo 区间 | 未定 | 仍展示 CQR 的 90% 范围 | 与 REPORT 结论存在口径差，**待切换为 split**（见下） |
+| 演示形态 | 时间轴滑杆（14/28/42/56 天） | 选机器 + 观测周期 + 预测轨迹 | 训练集是完整寿命，"选一台机器看它怎么坏"更有说服力 |
+| 特征 | 滑动统计 + 工况归一化（未定维数） | 379 维多尺度滚动 + cummax | 早期/末期需要不同窗口 |
+| 模型 | GBDT + LSTM/TCN | GBDT + LSTM(w30/w50) + ConvTransformer + 等权组合 | 需要检验"容量是否瓶颈" |
+| 选型 | 只写"测试集只读一次" | W18 真正闭环，报告后悔值 | 之前所有对比都在测试集上读，属于协议漏洞 |
+| 评估口径 | 末周期 RMSE/NASA | 末周期 + 每周期 + 中段全量 + bootstrap | 末周期会美化模型（§20、§21） |
+| 数据位置 | `data/raw` | `data/cmapss`、`data/metropt` | 与加载器默认路径一致 |
+| 测试 | 计划"核心逻辑有单测" | 48 个用例 | 覆盖到 demo 与选型工具 |
+
+**已知不一致（需要后续处理）**：REPORT §5.2 的结论是 split conformal 比 CQR 更窄、覆盖率相当，而 demo 仍用 CQR 的 `cqr_q` 与分位模型出区间。两者都来自同一份校准集，属于"报告结论未落到产品"的偏差。修正方式：在 `RULBundle` 增加 `interval="split"` 选项，demo 默认用它（split 的 q 已存在 `conformal_FD00x.json` 的 `split_q` 字段），并补一个测试。
